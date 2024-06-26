@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compras</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Compras</h1>
+    <form id="compra-form">
+        <label for="data">Data:</label>
+        <input type="date" id="data" name="data" required>
+        <label for="valor">Valor:</label>
+        <input type="number" id="valor" name="valor" step="0.01" required>
+        <label for="status">Status:</label>
+        <input type="text" id="status" name="status">
+        <label for="clienteId">ID do Cliente:</label>
+        <input type="number" id="clienteId" name="clienteId" required>
+        <button type="submit">Adicionar Compra</button>
+    </form>
+    <h2>Lista de Compras</h2>
+    <ul id="compras-list"></ul>
+    <script>
+        document.getElementById('compra-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const data = document.getElementById('data').value;
+            const valor = document.getElementById('valor').value;
+            const status = document.getElementById('status').value;
+            const clienteId = document.getElementById('clienteId').value;
+
+            fetch('/compras', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ data, valor, status, clienteId })
+            })
+            .then(response => response.text())
+            .then(data => {
+                alert(data);
+                loadCompras();
+            });
+        });
+
+        function loadCompras() {
+            fetch('/compras')
+            .then(response => response.json())
+            .then(data => {
+                const comprasList = document.getElementById('compras-list');
+                comprasList.innerHTML = '';
+                data?.forEach(compra => {
+                    const li = document.createElement('li');
+                    li.textContent = `Data: ${compra.data}, Valor: ${compra.valor}, Status: ${compra.status}, Cliente: ${compra.nome}`;
+                    comprasList.appendChild(li);
+                });
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', loadCompras);
+    </script>
+</body>
+</html>
