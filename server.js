@@ -15,71 +15,83 @@ const dbConfig = {
     host: 'db',
     user: 'root',
     password: 'sua_senha',
-    database: 'minha_aplicacao'
+    database: 'minha_aplicacao',
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
 };
 
-// Criar pool de conexões
 const pool = mysql.createPool(dbConfig);
 
-// Função para inicializar o banco de dados (opcional)
 function initializeDatabase() {
-    const createClienteTable = `
-        CREATE TABLE IF NOT EXISTS Cliente (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            nome VARCHAR(255) NOT NULL,
-            email VARCHAR(255) NOT NULL UNIQUE,
-            telefone VARCHAR(50)
-        );
-    `;
-
-    const createCompraTable = `
-        CREATE TABLE IF NOT EXISTS Compra (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            data DATE NOT NULL,
-            valor DECIMAL(10, 2) NOT NULL,
-            status VARCHAR(50)
-        );
-    `;
-
-    const createCompraClienteTable = `
-        CREATE TABLE IF NOT EXISTS Compra_Cliente (
-            cliente_id INT,
-            compra_id INT,
-            PRIMARY KEY (cliente_id, compra_id),
-            FOREIGN KEY (cliente_id) REFERENCES Cliente(id) ON DELETE CASCADE,
-            FOREIGN KEY (compra_id) REFERENCES Compra(id) ON DELETE CASCADE
-        );
-    `;
-
-    pool.query(createClienteTable, err => {
+    pool.getConnection((err, connection) => {
         if (err) {
-            console.error('Erro ao criar tabela Cliente:', err);
+            console.error('Erro ao conectar ao banco de dados:', err);
             return;
         }
-        console.log('Tabela Cliente verificada/criada com sucesso.');
-    });
 
-    pool.query(createCompraTable, err => {
-        if (err) {
-            console.error('Erro ao criar tabela Compra:', err);
-            return;
-        }
-        console.log('Tabela Compra verificada/criada com sucesso.');
-    });
+        const createClienteTable = `
+            CREATE TABLE IF NOT EXISTS Cliente (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                nome VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                telefone VARCHAR(50)
+            );
+        `;
 
-    pool.query(createCompraClienteTable, err => {
-        if (err) {
-            console.error('Erro ao criar tabela Compra_Cliente:', err);
-            return;
-        }
-        console.log('Tabela Compra_Cliente verificada/criada com sucesso.');
+        const createCompraTable = `
+            CREATE TABLE IF NOT EXISTS Compra (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                data DATE NOT NULL,
+                valor DECIMAL(10, 2) NOT NULL,
+                status VARCHAR(50)
+            );
+        `;
+
+        const createCompraClienteTable = `
+            CREATE TABLE IF NOT EXISTS Compra_Cliente (
+                cliente_id INT,
+                compra_id INT,
+                PRIMARY KEY (cliente_id, compra_id),
+                FOREIGN KEY (cliente_id) REFERENCES Cliente(id) ON DELETE CASCADE,
+                FOREIGN KEY (compra_id) REFERENCES Compra(id) ON DELETE CASCADE
+            );
+        `;
+
+        connection.query(createClienteTable, err => {
+            if (err) {
+                console.error('Erro ao criar tabela Cliente:', err);
+                return;
+            }
+            console.log('Tabela Cliente verificada/criada com sucesso.');
+
+            // Criação da tabela Compra após a tabela Cliente ser criada
+            connection.query(createCompraTable, err => {
+                if (err) {
+                    console.error('Erro ao criar tabela Compra:', err);
+                    return;
+                }
+                console.log('Tabela Compra verificada/criada com sucesso.');
+
+                // Criação da tabela Compra_Cliente após as tabelas Cliente e Compra serem criadas
+                connection.query(createCompraClienteTable, err => {
+                    if (err) {
+                        console.error('Erro ao criar tabela Compra_Cliente:', err);
+                        return;
+                    }
+                    console.log('Tabela Compra_Cliente verificada/criada com sucesso.');
+                });
+            });
+        });
+
+        connection.release();
     });
 }
 
-// Inicializar o banco de dados (opcional)
+// Chamar a função para inicializar o banco de dados
 initializeDatabase();
 
-// Rota para adicionar um cliente
+// Rotas para criar e listar Clientes
 app.post('/clientes', (req, res) => {
     const { nome, email, telefone } = req.body;
     const sql = 'INSERT INTO Cliente (nome, email, telefone) VALUES (?, ?, ?)';
@@ -92,14 +104,8 @@ app.post('/clientes', (req, res) => {
     });
 });
 
-// Rota para listar todos os clientes
 app.get('/clientes', (req, res) => {
-    const sql = `
-        SELECT Cliente.*, Compra.*
-        FROM Cliente
-        LEFT JOIN Compra_Cliente ON Cliente.id = Compra_Cliente.cliente_id
-        LEFT JOIN Compra ON Compra_Cliente.compra_id = Compra.id
-    `;
+    const sql = 'SELECT id, nome, email, telefone FROM Cliente';
     pool.query(sql, (err, results) => {
         if (err) {
             return res.status(500).send(err);
@@ -108,9 +114,11 @@ app.get('/clientes', (req, res) => {
     });
 });
 
-// Rota para adicionar uma compra
+// Rotas para criar e listar Compras
 app.post('/compras', (req, res) => {
     const { data, valor, status, clienteId } = req.body;
+    // Formata a data para o formato desejado (dia/mês/ano)
+    const dataFormatada = new Date(data).toLocaleDateString('pt-BR');
     const sqlCompra = 'INSERT INTO Compra (data, valor, status) VALUES (?, ?, ?)';
     pool.query(sqlCompra, [data, valor, status], (err, result) => {
         if (err) {
@@ -124,12 +132,12 @@ app.post('/compras', (req, res) => {
                 console.error('Erro ao associar compra ao cliente:', err);
                 return res.status(500).json({ error: 'Erro ao associar compra ao cliente' });
             }
-            res.send('Compra adicionada com sucesso!');
+            // Retorna mensagem de sucesso e dados da compra formatados
+            res.send(`Compra adicionada com sucesso! Data: ${dataFormatada}`);
         });
     });
 });
 
-// Rota para listar todas as compras
 app.get('/compras', (req, res) => {
     const sql = `
         SELECT Compra.*, Cliente.*
@@ -141,6 +149,10 @@ app.get('/compras', (req, res) => {
         if (err) {
             return res.status(500).send(err);
         }
+        // Formata cada compra com data no formato desejado
+        results.forEach(compra => {
+            compra.data = new Date(compra.data).toLocaleDateString('pt-BR');
+        });
         res.json(results);
     });
 });
@@ -150,7 +162,6 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Iniciar o servidor
 app.listen(port, () => {
     console.log(`Servidor rodando na porta ${port}`);
 });
